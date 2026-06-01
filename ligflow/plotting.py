@@ -313,7 +313,7 @@ def workflow_diagnostics(
     The figure contains panels for:
     1) initial perturbation from ligand-target priors,
     2) GRN propagation over iterations,
-    3) post-propagation kNN smoothing,
+    3) propagated perturbation distribution,
     4) transition probability confidence,
     5) per-cell perturbation effect size,
     6) velocity vector field on embedding.
@@ -334,7 +334,7 @@ def workflow_diagnostics(
     basis:
         Name of the embedding (e.g. ``"umap"``).
     n_neighbors:
-        Number of neighbours for kNN smoothing and transition probabilities.
+        Number of neighbours for transition probabilities.
     n_iter:
         Number of GRN propagation iterations.
     damping:
@@ -358,7 +358,6 @@ def workflow_diagnostics(
     import matplotlib.pyplot as plt
     import scipy.sparse as sp
 
-    from .imputation import knn_smooth_array
     from .priors import network_to_adjacency, subset_by_ligand
     from .propagation import _column_normalise, build_initial_delta
     from .transitions import compute_transition_probabilities
@@ -403,13 +402,8 @@ def workflow_diagnostics(
         propagation_norms.append(float(np.linalg.norm(delta)))
     propagated_raw = np.tile(delta, (expression.shape[0], 1))
 
-    # Step 3: post-propagation smoothing over neighbours
-    propagated = knn_smooth_array(
-        adata=adata,
-        values=propagated_raw,
-        n_neighbors=n_neighbors,
-        use_existing_neighbors=True,
-    )
+    # Step 3: propagated perturbation (no post-propagation smoothing)
+    propagated = propagated_raw
 
     # Step 4: transition matrix from Gaussian kernel
     T = compute_transition_probabilities(
@@ -466,7 +460,7 @@ def workflow_diagnostics(
     ax_prop.set_ylabel(r"$||\delta||_2$")
     ax_prop.set_title("2) GRN propagation")
 
-    # 3) Post-propagation smoothing panel
+    # 3) Propagated perturbation panel
     raw_norm = np.linalg.norm(propagated_raw, axis=1)
     smooth_norm = np.linalg.norm(propagated, axis=1)
     ax_smooth.scatter(raw_norm, smooth_norm, s=10, alpha=0.75, color="tab:blue")
@@ -474,8 +468,8 @@ def workflow_diagnostics(
     hi = float(max(raw_norm.max(), smooth_norm.max()))
     ax_smooth.plot([lo, hi], [lo, hi], "--", color="black", linewidth=1)
     ax_smooth.set_xlabel("Per-cell |shift| (raw)")
-    ax_smooth.set_ylabel("Per-cell |shift| (smoothed)")
-    ax_smooth.set_title("3) Post-propagation smoothing")
+    ax_smooth.set_ylabel("Per-cell |shift| (used)")
+    ax_smooth.set_title("3) Propagated perturbation")
 
     # 4) Transition probabilities panel
     row_max = np.asarray(T.max(axis=1).toarray()).ravel()

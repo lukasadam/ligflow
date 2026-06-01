@@ -77,7 +77,7 @@ lf.pl.workflow_diagnostics(
 ```
 
 `lf.pl.workflow_diagnostics(...)` now visualises six stages:
-initial perturbation, GRN propagation, post-propagation smoothing, transition confidence, effect-size distribution, and embedding velocity.
+initial perturbation, GRN propagation, propagated perturbation, transition confidence, effect-size distribution, and embedding velocity.
 
 Results are stored in:
 

@@ -49,6 +49,8 @@ def run_ligand_flow(
       serialised as a dict of arrays (``data``, ``indices``, ``indptr``,
       ``shape``).
     * ``adata.uns["ligand_metadata"]``  – run parameters.
+      Includes flags describing whether post-propagation smoothing or
+      effect-size scaling were applied, and the velocity embedding method.
 
     Parameters
     ----------
