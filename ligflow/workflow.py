@@ -11,13 +11,12 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+import scvelo as scv
 from anndata import AnnData
 
-from .imputation import knn_smooth_array
 from .propagation import build_initial_delta, propagate_signal
 from .priors import network_to_adjacency, subset_by_ligand
 from .transitions import compute_transition_probabilities
-from .vectorfield import transition_to_vectors
 
 
 def run_ligand_flow(
@@ -39,10 +38,8 @@ def run_ligand_flow(
 
     1. Build the initial perturbation vector from *prior_network*.
     2. Propagate the perturbation through *grn_network* for *n_iter* steps.
-    3. Smooth the propagated perturbation over the kNN graph.
-    4. Compute cell-cell transition probabilities via a Gaussian kernel.
-    5. Convert the transition matrix into velocity vectors in embedding space,
-       scaled by per-cell perturbation effect size.
+    3. Compute cell-cell transition probabilities via a Gaussian kernel.
+    4. Compute embedding velocities with ``scvelo.tl.velocity_embedding``.
 
     Results are stored in *adata* (or a copy if ``copy=True``):
 
@@ -71,8 +68,7 @@ def run_ligand_flow(
     embedding_key:
         Key in ``adata.obsm`` for the 2-D embedding used for the vector field.
     n_neighbors:
-        Number of nearest neighbours for post-propagation kNN smoothing and
-        transition probability estimation.
+        Number of nearest neighbours for transition probability estimation.
     n_iter:
         Number of GRN propagation iterations.
     damping:
@@ -142,15 +138,8 @@ def run_ligand_flow(
         damping=damping,
     )
 
-    # ── Step 4: Smooth propagated perturbation across neighbouring cells ─────
-    propagated = knn_smooth_array(
-        adata=adata,
-        values=propagated_raw,
-        n_neighbors=n_neighbors,
-        use_existing_neighbors=True,
-    )
-
-    # ── Step 5: Transition probabilities ────────────────────────────────────
+    # ── Step 4: Transition probabilities ────────────────────────────────────
+    propagated = propagated_raw
     T = compute_transition_probabilities(
         adata=adata,
         expression=expression,
@@ -160,17 +149,19 @@ def run_ligand_flow(
         use_existing_neighbors=True,
     )
 
-    # ── Step 6: Vector field ─────────────────────────────────────────────────
-    effect_size = np.linalg.norm(propagated, axis=1)
-    vectors = transition_to_vectors(
-        adata=adata,
-        transition_matrix=T,
-        embedding_key=embedding_key,
-        effect_size=effect_size,
+    # ── Step 5: Embedding velocity (scvelo) ─────────────────────────────────
+    adata.layers["ligand_shift"] = propagated
+    basis = embedding_key[2:] if embedding_key.startswith("X_") else embedding_key
+    scv.tl.velocity_embedding(
+        adata,
+        basis=basis,
+        vkey="ligand_shift",
+        T=T,
+        autoscale=False,
     )
+    vectors = np.asarray(adata.obsm[f"ligand_shift_{basis}"])
 
     # ── Store results ────────────────────────────────────────────────────────
-    adata.layers["ligand_shift"] = propagated
     adata.obsm["X_ligand_velocity"] = vectors
 
     # Serialise sparse transition matrix for storage in uns
@@ -189,8 +180,9 @@ def run_ligand_flow(
         "kernel_sigma": kernel_sigma,
         "embedding_key": embedding_key,
         "expression_layer": expression_layer,
-        "post_propagation_smoothing": True,
-        "velocity_scaled_by_effect_size": True,
+        "post_propagation_smoothing": False,
+        "velocity_scaled_by_effect_size": False,
+        "velocity_embedding_method": "scvelo.tl.velocity_embedding",
     }
 
     if copy:

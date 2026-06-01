@@ -8,9 +8,8 @@ The method does *not* infer true temporal dynamics from time-series data.  Inste
 
 1. **Computing an initial perturbation vector** from a ligand-target prior network (e.g. NicheNet).
 2. **Propagating** the perturbation through a gene regulatory network for a user-defined number of iterations.
-3. **Smoothing** the propagated perturbation over k-nearest neighbours.
-4. **Estimating transition probabilities** by comparing each cell's predicted post-perturbation state to the expression of its local neighbours (Gaussian kernel).
-5. **Converting** the transition matrix to a velocity vector field in embedding space, scaled by per-cell effect size.
+3. **Estimating transition probabilities** by comparing each cell's predicted post-perturbation state to the expression of its local neighbours (Gaussian kernel).
+4. **Projecting** ligand shift vectors into embedding space via `scvelo.tl.velocity_embedding`.
 
 This approach is conceptually similar to RNA velocity (scVelo) but driven by *prior knowledge* about ligand signalling rather than splicing kinetics.
 
