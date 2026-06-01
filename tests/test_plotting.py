@@ -23,7 +23,8 @@ def test_workflow_diagnostics_returns_axes(adata, prior_network, grn_network):
         show=False,
     )
     assert axes.shape == (2, 3)
-    assert axes[1, 2].axison is False
+    assert axes[1, 2].get_title() == "6) Velocity field"
+    assert axes[1, 1].get_title() == "5) Effect size"
 
 
 def test_workflow_diagnostics_handles_missing_ligand_targets(adata, prior_network, grn_network):
@@ -47,7 +48,7 @@ def test_workflow_diagnostics_handles_missing_ligand_targets(adata, prior_networ
         damping=0.8,
         show=False,
     )
-    assert axes[0, 1].get_title() == "2) Initial perturbation"
-    assert any(text.get_text() == "No prior targets found" for text in axes[0, 1].texts)
-    assert len(axes[0, 1].get_xticks()) == 0
-    assert len(axes[0, 1].get_yticks()) == 0
+    assert axes[0, 0].get_title() == "1) Initial perturbation"
+    assert any(text.get_text() == "No prior targets found" for text in axes[0, 0].texts)
+    assert len(axes[0, 0].get_xticks()) == 0
+    assert len(axes[0, 0].get_yticks()) == 0

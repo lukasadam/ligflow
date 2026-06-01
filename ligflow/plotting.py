@@ -308,14 +308,15 @@ def workflow_diagnostics(
     show: bool = True,
     save: Optional[str] = None,
 ) -> Optional[np.ndarray]:
-    """Plot a five-step visual diagnostic overview of the ligflow workflow.
+    """Plot a six-step visual diagnostic overview of the ligflow workflow.
 
     The figure contains panels for:
-    1) kNN expression smoothing,
-    2) initial perturbation from ligand-target priors,
-    3) GRN propagation over iterations,
+    1) initial perturbation from ligand-target priors,
+    2) GRN propagation over iterations,
+    3) post-propagation kNN smoothing,
     4) transition probability confidence,
-    5) velocity vector field on embedding.
+    5) per-cell perturbation effect size,
+    6) velocity vector field on embedding.
 
     Parameters
     ----------
@@ -357,7 +358,7 @@ def workflow_diagnostics(
     import matplotlib.pyplot as plt
     import scipy.sparse as sp
 
-    from .imputation import knn_smooth
+    from .imputation import knn_smooth_array
     from .priors import network_to_adjacency, subset_by_ligand
     from .propagation import _column_normalise, build_initial_delta
     from .transitions import compute_transition_probabilities
@@ -371,23 +372,15 @@ def workflow_diagnostics(
         )
 
     if expression_layer is None:
-        X_raw = adata.X
+        expression = adata.X
     else:
-        X_raw = adata.layers[expression_layer]
-    if sp.issparse(X_raw):
-        X_raw = np.asarray(X_raw.todense())
+        expression = adata.layers[expression_layer]
+    if sp.issparse(expression):
+        expression = np.asarray(expression.todense())
     else:
-        X_raw = np.asarray(X_raw)
+        expression = np.asarray(expression)
 
-    # Step 1: kNN smoothing
-    X_smooth = knn_smooth(
-        adata=adata,
-        layer=expression_layer,
-        n_neighbors=n_neighbors,
-        use_existing_neighbors=True,
-    )
-
-    # Step 2: initial perturbation from ligand-target prior
+    # Step 1: initial perturbation from ligand-target prior
     gene_names = list(adata.var_names)
     ligand_list = [ligand] if isinstance(ligand, str) else list(ligand)
     ligand_subnet = subset_by_ligand(prior_network, ligand_list)
@@ -397,7 +390,7 @@ def workflow_diagnostics(
         gene_names=gene_names,
     )
 
-    # Step 3: propagation through GRN
+    # Step 2: propagation through GRN
     grn_matrix = network_to_adjacency(grn_network, gene_names)
     G = _column_normalise(grn_matrix)
     delta = initial_delta.copy().astype(np.float64)
@@ -408,12 +401,20 @@ def workflow_diagnostics(
         else:
             delta = damping * (G @ delta) + initial_delta
         propagation_norms.append(float(np.linalg.norm(delta)))
-    propagated = np.tile(delta, (X_smooth.shape[0], 1))
+    propagated_raw = np.tile(delta, (expression.shape[0], 1))
+
+    # Step 3: post-propagation smoothing over neighbours
+    propagated = knn_smooth_array(
+        adata=adata,
+        values=propagated_raw,
+        n_neighbors=n_neighbors,
+        use_existing_neighbors=True,
+    )
 
     # Step 4: transition matrix from Gaussian kernel
     T = compute_transition_probabilities(
         adata=adata,
-        expression=X_smooth,
+        expression=expression,
         propagated_delta=propagated,
         n_neighbors=n_neighbors,
         kernel_sigma=kernel_sigma,
@@ -424,21 +425,26 @@ def workflow_diagnostics(
     vectors = transition_to_vectors(adata=adata, transition_matrix=T, embedding_key=emb_key)
 
     fig, axes = plt.subplots(2, 3, figsize=figsize)
-    ax_smooth, ax_delta, ax_prop = axes[0]
-    ax_trans, ax_vel, ax_unused = axes[1]
+    ax_delta, ax_prop, ax_smooth = axes[0]
+    ax_trans, ax_effect, ax_vel = axes[1]
 
-    # 1) Smoothing panel
-    raw_mean = X_raw.mean(axis=1)
-    smooth_mean = X_smooth.mean(axis=1)
-    ax_smooth.scatter(raw_mean, smooth_mean, s=10, alpha=0.75, color="tab:blue")
-    lo = float(min(raw_mean.min(), smooth_mean.min()))
-    hi = float(max(raw_mean.max(), smooth_mean.max()))
-    ax_smooth.plot([lo, hi], [lo, hi], "--", color="black", linewidth=1)
-    ax_smooth.set_xlabel("Per-cell mean (raw)")
-    ax_smooth.set_ylabel("Per-cell mean (smoothed)")
-    ax_smooth.set_title("1) kNN smoothing")
+    def _plot_hist(ax, values: np.ndarray, bins: int, color: str, alpha: float) -> None:
+        finite = np.asarray(values)[np.isfinite(values)]
+        if finite.size == 0:
+            ax.text(0.5, 0.5, "No finite values", ha="center", va="center")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            return
+        vmin = float(np.min(finite))
+        vmax = float(np.max(finite))
+        if np.isclose(vmin, vmax):
+            width = max(abs(vmin) * 0.05, 1e-6)
+            ax.bar([vmin], [finite.size], width=width, color=color, alpha=alpha, align="center")
+            ax.set_xlim(vmin - width, vmax + width)
+            return
+        ax.hist(finite, bins=bins, color=color, alpha=alpha)
 
-    # 2) Initial perturbation panel
+    # 1) Initial perturbation panel
     nonzero_idx = np.where(np.abs(initial_delta) > 0)[0]
     if nonzero_idx.size == 0:
         ax_delta.text(0.5, 0.5, "No prior targets found", ha="center", va="center")
@@ -452,22 +458,40 @@ def workflow_diagnostics(
         ax_delta.barh(genes, vals, color="tab:orange")
         ax_delta.set_xlabel("Initial perturbation weight")
         ax_delta.invert_yaxis()
-    ax_delta.set_title("2) Initial perturbation")
+    ax_delta.set_title("1) Initial perturbation")
 
-    # 3) Propagation panel
+    # 2) Propagation panel
     ax_prop.plot(range(len(propagation_norms)), propagation_norms, marker="o", color="tab:green")
     ax_prop.set_xlabel("Iteration")
     ax_prop.set_ylabel(r"$||\delta||_2$")
-    ax_prop.set_title("3) GRN propagation")
+    ax_prop.set_title("2) GRN propagation")
+
+    # 3) Post-propagation smoothing panel
+    raw_norm = np.linalg.norm(propagated_raw, axis=1)
+    smooth_norm = np.linalg.norm(propagated, axis=1)
+    ax_smooth.scatter(raw_norm, smooth_norm, s=10, alpha=0.75, color="tab:blue")
+    lo = float(min(raw_norm.min(), smooth_norm.min()))
+    hi = float(max(raw_norm.max(), smooth_norm.max()))
+    ax_smooth.plot([lo, hi], [lo, hi], "--", color="black", linewidth=1)
+    ax_smooth.set_xlabel("Per-cell |shift| (raw)")
+    ax_smooth.set_ylabel("Per-cell |shift| (smoothed)")
+    ax_smooth.set_title("3) Post-propagation smoothing")
 
     # 4) Transition probabilities panel
     row_max = np.asarray(T.max(axis=1).toarray()).ravel()
-    ax_trans.hist(row_max, bins=25, color="tab:purple", alpha=0.85)
+    _plot_hist(ax_trans, row_max, bins=25, color="tab:purple", alpha=0.85)
     ax_trans.set_xlabel("Max transition probability per cell")
     ax_trans.set_ylabel("Cell count")
     ax_trans.set_title("4) Transition probabilities")
 
-    # 5) Velocity field panel
+    # 5) Effect size panel
+    effect_size = np.linalg.norm(propagated, axis=1)
+    _plot_hist(ax_effect, effect_size, bins=25, color="tab:red", alpha=0.85)
+    ax_effect.set_xlabel("Per-cell perturbation effect size")
+    ax_effect.set_ylabel("Cell count")
+    ax_effect.set_title("5) Effect size")
+
+    # 6) Velocity field panel
     coords = np.asarray(adata.obsm[emb_key])
     ax_vel.scatter(coords[:, 0], coords[:, 1], s=5, color="lightgrey", rasterized=True)
     ax_vel.quiver(
@@ -486,10 +510,8 @@ def workflow_diagnostics(
     )
     ax_vel.set_xlabel(f"{basis.upper()} 1")
     ax_vel.set_ylabel(f"{basis.upper()} 2")
-    ax_vel.set_title("5) Velocity field")
+    ax_vel.set_title("6) Velocity field")
     ax_vel.set_aspect("equal", "box")
-
-    ax_unused.axis("off")
     fig.tight_layout()
 
     if save is not None:

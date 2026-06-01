@@ -77,6 +77,9 @@ lf.pl.workflow_diagnostics(
 )
 ```
 
+`lf.pl.workflow_diagnostics(...)` now visualises six stages:
+initial perturbation, GRN propagation, post-propagation smoothing, transition confidence, effect-size distribution, and embedding velocity.
+
 Results are stored in:
 
 | Key | Description |
@@ -124,3 +127,16 @@ pytest
 ```bash
 python examples/synthetic_example.py
 ```
+
+## Benchmarking
+
+Run a synthetic runtime benchmark (CSV + runtime plot):
+
+```bash
+python examples/benchmark_synthetic.py
+```
+
+This writes:
+
+- `ligflow_benchmark_results.csv`
+- `ligflow_benchmark_runtime.png`
