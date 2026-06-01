@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Nextflow
+.nextflow/
+.nextflow.log*
+work/
+results/
+test_results/
