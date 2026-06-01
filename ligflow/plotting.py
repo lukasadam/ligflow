@@ -25,6 +25,7 @@ def velocity_embedding(
     alpha: float = 0.8,
     figsize: tuple[float, float] = (7, 6),
     show: bool = True,
+    save: Optional[str] = None,
     ax: Optional["matplotlib.axes.Axes"] = None,  # noqa: F821
     title: Optional[str] = None,
 ) -> Optional["matplotlib.axes.Axes"]:  # noqa: F821
@@ -53,6 +54,9 @@ def velocity_embedding(
         Figure size ``(width, height)`` in inches.
     show:
         If *True* call ``plt.show()`` before returning.
+    save:
+        File path to save the figure as a PNG (e.g. ``"velocity.png"``).
+        When *None* the figure is not saved.
     ax:
         Existing axes to draw into.  A new figure is created when *None*.
     title:
@@ -76,10 +80,6 @@ def velocity_embedding(
             f"Embedding key '{emb_key}' not found in adata.obsm. "
             f"Available: {list(adata.obsm.keys())}"
         )
-    if n_iter < 0:
-        raise ValueError(f"n_iter must be non-negative, got {n_iter}")
-    if not (0.0 <= damping <= 1.0):
-        raise ValueError(f"damping must be in [0, 1], got {damping}")
     if velocity_key not in adata.obsm:
         raise KeyError(
             f"Velocity key '{velocity_key}' not found in adata.obsm. "
@@ -132,8 +132,10 @@ def velocity_embedding(
     ax.set_title(title or f"Ligand velocity ({basis})")
     ax.set_aspect("equal", "box")
 
+    plt.tight_layout()
+    if save is not None:
+        ax.figure.savefig(save, dpi=150, bbox_inches="tight")
     if show:
-        plt.tight_layout()
         plt.show()
         return None
     return ax
@@ -146,6 +148,7 @@ def ligand_effect_magnitude(
     figsize: tuple[float, float] = (7, 6),
     cmap: str = "viridis",
     show: bool = True,
+    save: Optional[str] = None,
     ax: Optional["matplotlib.axes.Axes"] = None,  # noqa: F821
     title: Optional[str] = None,
 ) -> Optional["matplotlib.axes.Axes"]:  # noqa: F821
@@ -165,6 +168,9 @@ def ligand_effect_magnitude(
         Matplotlib colormap name.
     show:
         If *True* call ``plt.show()`` before returning.
+    save:
+        File path to save the figure as a PNG (e.g. ``"magnitude.png"``).
+        When *None* the figure is not saved.
     ax:
         Existing axes.
     title:
@@ -203,8 +209,10 @@ def ligand_effect_magnitude(
     ax.set_title(title or f"Ligand effect magnitude ({basis})")
     ax.set_aspect("equal", "box")
 
+    plt.tight_layout()
+    if save is not None:
+        ax.figure.savefig(save, dpi=150, bbox_inches="tight")
     if show:
-        plt.tight_layout()
         plt.show()
         return None
     return ax
@@ -217,6 +225,7 @@ def top_target_genes(
     figsize: tuple[float, float] = (8, 5),
     color: str = "steelblue",
     show: bool = True,
+    save: Optional[str] = None,
     ax: Optional["matplotlib.axes.Axes"] = None,  # noqa: F821
     title: Optional[str] = None,
 ) -> Optional["matplotlib.axes.Axes"]:  # noqa: F821
@@ -236,6 +245,9 @@ def top_target_genes(
         Bar colour.
     show:
         If *True* call ``plt.show()`` before returning.
+    save:
+        File path to save the figure as a PNG (e.g. ``"top_genes.png"``).
+        When *None* the figure is not saved.
     ax:
         Existing axes.
     title:
@@ -271,8 +283,10 @@ def top_target_genes(
     ax.set_title(title or f"Top {n_genes} predicted target genes")
     ax.invert_yaxis()
 
+    plt.tight_layout()
+    if save is not None:
+        ax.figure.savefig(save, dpi=150, bbox_inches="tight")
     if show:
-        plt.tight_layout()
         plt.show()
         return None
     return ax
@@ -292,6 +306,7 @@ def workflow_diagnostics(
     top_n_genes: int = 12,
     figsize: tuple[float, float] = (16, 9),
     show: bool = True,
+    save: Optional[str] = None,
 ) -> Optional[np.ndarray]:
     """Plot a five-step visual diagnostic overview of the ligflow workflow.
 
@@ -301,6 +316,43 @@ def workflow_diagnostics(
     3) GRN propagation over iterations,
     4) transition probability confidence,
     5) velocity vector field on embedding.
+
+    Parameters
+    ----------
+    adata:
+        Annotated data matrix.
+    ligand:
+        Ligand name(s) to analyse.
+    prior_network:
+        Ligand-target prior network DataFrame.
+    grn_network:
+        Gene regulatory network DataFrame.
+    expression_layer:
+        Layer in ``adata.layers`` to use as expression values. Uses ``adata.X``
+        when *None*.
+    basis:
+        Name of the embedding (e.g. ``"umap"``).
+    n_neighbors:
+        Number of neighbours for kNN smoothing and transition probabilities.
+    n_iter:
+        Number of GRN propagation iterations.
+    damping:
+        Damping factor for GRN propagation (between 0 and 1).
+    kernel_sigma:
+        Bandwidth of the Gaussian kernel; estimated automatically when *None*.
+    top_n_genes:
+        Number of top-perturbed genes shown in panel 2.
+    figsize:
+        Figure size ``(width, height)`` in inches.
+    show:
+        If *True* call ``plt.show()`` before returning.
+    save:
+        File path to save the figure as a PNG (e.g.
+        ``"workflow_diagnostics.png"``).  When *None* the figure is not saved.
+
+    Returns
+    -------
+    numpy.ndarray of matplotlib.axes.Axes or None
     """
     import matplotlib.pyplot as plt
     import scipy.sparse as sp
@@ -440,6 +492,8 @@ def workflow_diagnostics(
     ax_unused.axis("off")
     fig.tight_layout()
 
+    if save is not None:
+        fig.savefig(save, dpi=150, bbox_inches="tight")
     if show:
         plt.show()
         return None

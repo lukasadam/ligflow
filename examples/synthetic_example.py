@@ -104,24 +104,22 @@ try:
     import matplotlib
     matplotlib.use("Agg")  # non-interactive backend
 
-    ax = lf.pl.velocity_embedding(
+    lf.pl.velocity_embedding(
         result,
         basis="umap",
         color="cell_type",
         show=False,
+        save="ligflow_velocity.png",
     )
-    ax.figure.savefig("/tmp/ligflow_velocity.png", dpi=100, bbox_inches="tight")
-    print("\nSaved velocity plot to /tmp/ligflow_velocity.png")
+    print("\nSaved velocity plot to ligflow_velocity.png")
 
-    ax2 = lf.pl.ligand_effect_magnitude(result, show=False)
-    ax2.figure.savefig("/tmp/ligflow_magnitude.png", dpi=100, bbox_inches="tight")
-    print("Saved magnitude plot to /tmp/ligflow_magnitude.png")
+    lf.pl.ligand_effect_magnitude(result, show=False, save="ligflow_magnitude.png")
+    print("Saved magnitude plot to ligflow_magnitude.png")
 
-    ax3 = lf.pl.top_target_genes(result, n_genes=10, show=False)
-    ax3.figure.savefig("/tmp/ligflow_top_genes.png", dpi=100, bbox_inches="tight")
-    print("Saved top-genes plot to /tmp/ligflow_top_genes.png")
+    lf.pl.top_target_genes(result, n_genes=10, show=False, save="ligflow_top_genes.png")
+    print("Saved top-genes plot to ligflow_top_genes.png")
 
-    axes = lf.pl.workflow_diagnostics(
+    lf.pl.workflow_diagnostics(
         result,
         ligand=LIGAND,
         prior_network=prior_df,
@@ -131,9 +129,9 @@ try:
         n_iter=3,
         damping=0.8,
         show=False,
+        save="ligflow_workflow_diagnostics.png",
     )
-    axes[0, 0].figure.savefig("/tmp/ligflow_workflow_diagnostics.png", dpi=100, bbox_inches="tight")
-    print("Saved workflow diagnostics plot to /tmp/ligflow_workflow_diagnostics.png")
+    print("Saved workflow diagnostics plot to ligflow_workflow_diagnostics.png")
 
 except ImportError:
     print("\n(matplotlib not available; skipping plots)")

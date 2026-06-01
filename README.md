@@ -61,6 +61,20 @@ lf.pl.workflow_diagnostics(
     grn_network=grn,
     basis="umap",
 )
+
+# Save plots as PNGs
+lf.pl.velocity_embedding(adata, basis="umap", color="cell_type", show=False, save="velocity.png")
+lf.pl.ligand_effect_magnitude(adata, show=False, save="magnitude.png")
+lf.pl.top_target_genes(adata, n_genes=20, show=False, save="top_genes.png")
+lf.pl.workflow_diagnostics(
+    adata,
+    ligand="WNT3A",
+    prior_network=prior,
+    grn_network=grn,
+    basis="umap",
+    show=False,
+    save="workflow_diagnostics.png",
+)
 ```
 
 Results are stored in:
