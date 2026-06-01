@@ -121,6 +121,20 @@ try:
     ax3.figure.savefig("/tmp/ligflow_top_genes.png", dpi=100, bbox_inches="tight")
     print("Saved top-genes plot to /tmp/ligflow_top_genes.png")
 
+    axes = lf.pl.workflow_diagnostics(
+        result,
+        ligand=LIGAND,
+        prior_network=prior_df,
+        grn_network=grn_df,
+        basis="umap",
+        n_neighbors=20,
+        n_iter=3,
+        damping=0.8,
+        show=False,
+    )
+    axes[0, 0].figure.savefig("/tmp/ligflow_workflow_diagnostics.png", dpi=100, bbox_inches="tight")
+    print("Saved workflow diagnostics plot to /tmp/ligflow_workflow_diagnostics.png")
+
 except ImportError:
     print("\n(matplotlib not available; skipping plots)")
 

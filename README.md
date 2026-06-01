@@ -54,6 +54,13 @@ lf.run_ligand_flow(
 lf.pl.velocity_embedding(adata, basis="umap", color="cell_type")
 lf.pl.ligand_effect_magnitude(adata)
 lf.pl.top_target_genes(adata, n_genes=20)
+lf.pl.workflow_diagnostics(
+    adata,
+    ligand="WNT3A",
+    prior_network=prior,
+    grn_network=grn,
+    basis="umap",
+)
 ```
 
 Results are stored in:

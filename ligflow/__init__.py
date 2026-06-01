@@ -14,6 +14,7 @@ Plotting (``lf.pl``)::
     lf.pl.velocity_embedding(adata, basis="umap")
     lf.pl.ligand_effect_magnitude(adata)
     lf.pl.top_target_genes(adata)
+    lf.pl.workflow_diagnostics(adata, ligand, prior_network, grn_network)
 """
 
 from __future__ import annotations

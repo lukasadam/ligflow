@@ -7,7 +7,7 @@ All functions live under ``ligflow.pl``.
 
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 from anndata import AnnData
@@ -271,3 +271,178 @@ def top_target_genes(
         plt.show()
         return None
     return ax
+
+
+def workflow_diagnostics(
+    adata: AnnData,
+    ligand: str | list[str],
+    prior_network: "pd.DataFrame",  # noqa: F821
+    grn_network: "pd.DataFrame",  # noqa: F821
+    expression_layer: Optional[str] = None,
+    basis: str = "umap",
+    n_neighbors: int = 30,
+    n_iter: int = 3,
+    damping: float = 0.8,
+    kernel_sigma: Optional[float] = None,
+    top_n_genes: int = 12,
+    figsize: tuple[float, float] = (16, 9),
+    show: bool = True,
+) -> Optional["numpy.ndarray"]:  # noqa: F821
+    """Plot a five-step visual diagnostic overview of the ligflow workflow.
+
+    The figure contains panels for:
+    1) kNN expression smoothing,
+    2) initial perturbation from ligand-target priors,
+    3) GRN propagation over iterations,
+    4) transition probability confidence,
+    5) velocity vector field on embedding.
+    """
+    import matplotlib.pyplot as plt
+    import scipy.sparse as sp
+
+    from .imputation import knn_smooth
+    from .priors import network_to_adjacency, subset_by_ligand
+    from .propagation import build_initial_delta, propagate_signal
+    from .transitions import compute_transition_probabilities
+    from .vectorfield import transition_to_vectors
+
+    emb_key = f"X_{basis}"
+    if emb_key not in adata.obsm:
+        raise KeyError(
+            f"Embedding key '{emb_key}' not found in adata.obsm. "
+            f"Available: {list(adata.obsm.keys())}"
+        )
+
+    if expression_layer is None:
+        X_raw = adata.X
+    else:
+        X_raw = adata.layers[expression_layer]
+    if sp.issparse(X_raw):
+        X_raw = np.asarray(X_raw.todense())
+    else:
+        X_raw = np.asarray(X_raw)
+
+    # Step 1: kNN smoothing
+    X_smooth = knn_smooth(
+        adata=adata,
+        layer=expression_layer,
+        n_neighbors=n_neighbors,
+        use_existing_neighbors=True,
+    )
+
+    # Step 2: initial perturbation from ligand-target prior
+    gene_names = list(adata.var_names)
+    ligand_subnet = subset_by_ligand(prior_network, ligand)
+    initial_delta = build_initial_delta(
+        ligand=ligand,
+        prior_network=ligand_subnet,
+        gene_names=gene_names,
+    )
+
+    # Step 3: propagation through GRN
+    grn_matrix = network_to_adjacency(grn_network, gene_names)
+    propagation_norms = []
+    for i in range(max(n_iter, 0) + 1):
+        propagated_i = propagate_signal(
+            expression=X_smooth,
+            initial_delta=initial_delta,
+            grn_matrix=grn_matrix,
+            n_iter=i,
+            damping=damping,
+        )
+        propagation_norms.append(float(np.linalg.norm(propagated_i[0])))
+
+    propagated = propagate_signal(
+        expression=X_smooth,
+        initial_delta=initial_delta,
+        grn_matrix=grn_matrix,
+        n_iter=n_iter,
+        damping=damping,
+    )
+
+    # Step 4: transition matrix from Gaussian kernel
+    T = compute_transition_probabilities(
+        adata=adata,
+        expression=X_smooth,
+        propagated_delta=propagated,
+        n_neighbors=n_neighbors,
+        kernel_sigma=kernel_sigma,
+        use_existing_neighbors=True,
+    )
+
+    # Step 5: velocity vectors in embedding
+    vectors = transition_to_vectors(adata=adata, transition_matrix=T, embedding_key=emb_key)
+
+    fig, axes = plt.subplots(2, 3, figsize=figsize)
+    ax_smooth, ax_delta, ax_prop = axes[0]
+    ax_trans, ax_vel, ax_unused = axes[1]
+
+    # 1) Smoothing panel
+    raw_mean = X_raw.mean(axis=1)
+    smooth_mean = X_smooth.mean(axis=1)
+    ax_smooth.scatter(raw_mean, smooth_mean, s=10, alpha=0.75, color="tab:blue")
+    lo = float(min(raw_mean.min(), smooth_mean.min()))
+    hi = float(max(raw_mean.max(), smooth_mean.max()))
+    ax_smooth.plot([lo, hi], [lo, hi], "--", color="black", linewidth=1)
+    ax_smooth.set_xlabel("Per-cell mean (raw)")
+    ax_smooth.set_ylabel("Per-cell mean (smoothed)")
+    ax_smooth.set_title("1) kNN smoothing")
+
+    # 2) Initial perturbation panel
+    nonzero_idx = np.where(np.abs(initial_delta) > 0)[0]
+    if nonzero_idx.size == 0:
+        ax_delta.text(0.5, 0.5, "No prior targets found", ha="center", va="center")
+        ax_delta.set_xticks([])
+        ax_delta.set_yticks([])
+    else:
+        ranked_idx = nonzero_idx[np.argsort(np.abs(initial_delta[nonzero_idx]))[::-1]]
+        top_idx = ranked_idx[:top_n_genes]
+        genes = np.array(gene_names, dtype=object)[top_idx]
+        vals = initial_delta[top_idx]
+        ax_delta.barh(genes[::-1], vals[::-1], color="tab:orange")
+        ax_delta.set_xlabel("Initial perturbation weight")
+        ax_delta.invert_yaxis()
+    ax_delta.set_title("2) Initial perturbation")
+
+    # 3) Propagation panel
+    ax_prop.plot(range(len(propagation_norms)), propagation_norms, marker="o", color="tab:green")
+    ax_prop.set_xlabel("Iteration")
+    ax_prop.set_ylabel("||delta||₂")
+    ax_prop.set_title("3) GRN propagation")
+
+    # 4) Transition probabilities panel
+    row_max = np.asarray(T.max(axis=1).toarray()).ravel()
+    ax_trans.hist(row_max, bins=25, color="tab:purple", alpha=0.85)
+    ax_trans.set_xlabel("Max transition probability per cell")
+    ax_trans.set_ylabel("Cell count")
+    ax_trans.set_title("4) Transition probabilities")
+
+    # 5) Velocity field panel
+    coords = np.asarray(adata.obsm[emb_key])
+    ax_vel.scatter(coords[:, 0], coords[:, 1], s=5, color="lightgrey", rasterized=True)
+    ax_vel.quiver(
+        coords[:, 0],
+        coords[:, 1],
+        vectors[:, 0],
+        vectors[:, 1],
+        color="black",
+        alpha=0.8,
+        scale_units="xy",
+        angles="xy",
+        scale=1.0,
+        headwidth=4,
+        headlength=5,
+        width=0.002,
+    )
+    ax_vel.set_xlabel(f"{basis.upper()} 1")
+    ax_vel.set_ylabel(f"{basis.upper()} 2")
+    ax_vel.set_title("5) Velocity field")
+    ax_vel.set_aspect("equal", "box")
+
+    ax_unused.axis("off")
+    fig.tight_layout()
+
+    if show:
+        plt.show()
+        return None
+    return axes
