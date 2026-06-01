@@ -55,20 +55,57 @@ def knn_smooth(
     else:
         X = np.array(X)
 
-    # ── 2. Build / retrieve kNN connectivity matrix ─────────────────────────
+    return knn_smooth_array(
+        adata=adata,
+        values=X,
+        n_neighbors=n_neighbors,
+        use_existing_neighbors=use_existing_neighbors,
+    )
+
+
+def knn_smooth_array(
+    adata: AnnData,
+    values: np.ndarray,
+    n_neighbors: int = 30,
+    use_existing_neighbors: bool = True,
+) -> np.ndarray:
+    """Smooth a cell-by-feature array over the kNN graph.
+
+    Parameters
+    ----------
+    adata:
+        Annotated data matrix providing cell neighbourhood information.
+    values:
+        Dense array of shape ``(n_cells, n_features)`` to smooth.
+    n_neighbors:
+        Number of neighbours to use when computing the kNN graph from scratch.
+    use_existing_neighbors:
+        If *True* and ``adata.obsp["connectivities"]`` exists, reuse it.
+
+    Returns
+    -------
+    numpy.ndarray
+        Smoothed array of shape ``(n_cells, n_features)``.
+    """
+    X = np.asarray(values)
+    if X.ndim != 2:
+        raise ValueError(f"values must be 2-D, got shape {X.shape}")
+    if X.shape[0] != adata.n_obs:
+        raise ValueError(
+            "values must have one row per cell: "
+            f"expected {adata.n_obs}, got {X.shape[0]}"
+        )
+
+    # ── 1. Build / retrieve kNN connectivity matrix ─────────────────────────
     conn = _get_connectivities(adata, n_neighbors, use_existing_neighbors)
 
-    # ── 3. Smooth: mean over self + neighbours ───────────────────────────────
-    # Row-normalise the connectivity matrix and add the identity so that
-    # each cell contributes equally to itself.
+    # ── 2. Smooth: mean over self + neighbours ───────────────────────────────
     n_cells = X.shape[0]
-    # Include self-loop
     conn_with_self = conn + sp.eye(n_cells, format="csr")
     row_sums = np.asarray(conn_with_self.sum(axis=1)).ravel()
-    # Avoid division by zero
     row_sums[row_sums == 0] = 1.0
     norm_factor = sp.diags(1.0 / row_sums, format="csr")
-    W = norm_factor @ conn_with_self  # row-normalised weight matrix
+    W = norm_factor @ conn_with_self
 
     X_smooth = W @ X
     return np.asarray(X_smooth)

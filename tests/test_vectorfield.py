@@ -43,3 +43,26 @@ def test_vectorfield_non_zero(adata):
     T = sp.csr_matrix((data, (row, col)), shape=(n, n))
     vectors = transition_to_vectors(adata, T, embedding_key="X_umap")
     assert np.linalg.norm(vectors) > 0
+
+
+def test_vectorfield_effect_size_scales_lengths(adata):
+    """effect_size should proportionally scale per-cell vector magnitudes."""
+    n = adata.n_obs
+    row = np.arange(n)
+    col = (np.arange(n) + 1) % n
+    data = np.ones(n)
+    T = sp.csr_matrix((data, (row, col)), shape=(n, n))
+
+    base = transition_to_vectors(adata, T, embedding_key="X_umap")
+    effect = np.ones(n, dtype=float)
+    effect[: n // 2] = 0.25
+    scaled = transition_to_vectors(
+        adata, T, embedding_key="X_umap", effect_size=effect
+    )
+
+    base_norm = np.linalg.norm(base, axis=1)
+    scaled_norm = np.linalg.norm(scaled, axis=1)
+    nonzero = base_norm > 0
+    np.testing.assert_allclose(
+        scaled_norm[nonzero], base_norm[nonzero] * effect[nonzero], rtol=1e-6
+    )

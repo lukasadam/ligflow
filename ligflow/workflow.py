@@ -13,7 +13,7 @@ import pandas as pd
 import scipy.sparse as sp
 from anndata import AnnData
 
-from .imputation import knn_smooth
+from .imputation import knn_smooth_array
 from .propagation import build_initial_delta, propagate_signal
 from .priors import network_to_adjacency, subset_by_ligand
 from .transitions import compute_transition_probabilities
@@ -37,11 +37,12 @@ def run_ligand_flow(
 
     The function executes the following steps in order:
 
-    1. Smooth / impute expression with kNN averaging.
-    2. Build the initial perturbation vector from *prior_network*.
-    3. Propagate the perturbation through *grn_network* for *n_iter* steps.
+    1. Build the initial perturbation vector from *prior_network*.
+    2. Propagate the perturbation through *grn_network* for *n_iter* steps.
+    3. Smooth the propagated perturbation over the kNN graph.
     4. Compute cell-cell transition probabilities via a Gaussian kernel.
-    5. Convert the transition matrix into velocity vectors in embedding space.
+    5. Convert the transition matrix into velocity vectors in embedding space,
+       scaled by per-cell perturbation effect size.
 
     Results are stored in *adata* (or a copy if ``copy=True``):
 
@@ -70,8 +71,8 @@ def run_ligand_flow(
     embedding_key:
         Key in ``adata.obsm`` for the 2-D embedding used for the vector field.
     n_neighbors:
-        Number of nearest neighbours for kNN smoothing and transition
-        probability estimation.
+        Number of nearest neighbours for post-propagation kNN smoothing and
+        transition probability estimation.
     n_iter:
         Number of GRN propagation iterations.
     damping:
@@ -113,13 +114,15 @@ def run_ligand_flow(
 
     gene_names = list(adata.var_names)
 
-    # ── Step 1: Smooth expression ────────────────────────────────────────────
-    X_smooth = knn_smooth(
-        adata,
-        layer=expression_layer,
-        n_neighbors=n_neighbors,
-        use_existing_neighbors=True,
-    )
+    # ── Step 1: Fetch expression matrix ──────────────────────────────────────
+    if expression_layer is None:
+        expression = adata.X
+    else:
+        expression = adata.layers[expression_layer]
+    if sp.issparse(expression):
+        expression = np.asarray(expression.todense())
+    else:
+        expression = np.asarray(expression)
 
     # ── Step 2: Build initial perturbation vector ────────────────────────────
     ligand_subnet = subset_by_ligand(prior_network, ligand)
@@ -131,29 +134,39 @@ def run_ligand_flow(
 
     # ── Step 3: Build GRN matrix & propagate ────────────────────────────────
     grn_matrix = network_to_adjacency(grn_network, gene_names)
-    propagated = propagate_signal(
-        expression=X_smooth,
+    propagated_raw = propagate_signal(
+        expression=expression,
         initial_delta=initial_delta,
         grn_matrix=grn_matrix,
         n_iter=n_iter,
         damping=damping,
     )
 
-    # ── Step 4: Transition probabilities ────────────────────────────────────
+    # ── Step 4: Smooth propagated perturbation across neighbouring cells ─────
+    propagated = knn_smooth_array(
+        adata=adata,
+        values=propagated_raw,
+        n_neighbors=n_neighbors,
+        use_existing_neighbors=True,
+    )
+
+    # ── Step 5: Transition probabilities ────────────────────────────────────
     T = compute_transition_probabilities(
         adata=adata,
-        expression=X_smooth,
+        expression=expression,
         propagated_delta=propagated,
         n_neighbors=n_neighbors,
         kernel_sigma=kernel_sigma,
         use_existing_neighbors=True,
     )
 
-    # ── Step 5: Vector field ─────────────────────────────────────────────────
+    # ── Step 6: Vector field ─────────────────────────────────────────────────
+    effect_size = np.linalg.norm(propagated, axis=1)
     vectors = transition_to_vectors(
         adata=adata,
         transition_matrix=T,
         embedding_key=embedding_key,
+        effect_size=effect_size,
     )
 
     # ── Store results ────────────────────────────────────────────────────────
@@ -176,6 +189,8 @@ def run_ligand_flow(
         "kernel_sigma": kernel_sigma,
         "embedding_key": embedding_key,
         "expression_layer": expression_layer,
+        "post_propagation_smoothing": True,
+        "velocity_scaled_by_effect_size": True,
     }
 
     if copy:

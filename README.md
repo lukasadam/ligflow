@@ -6,11 +6,11 @@
 
 The method does *not* infer true temporal dynamics from time-series data.  Instead, it simulates the likely local cell-state shift that would result from exposing cells to a specific ligand, by:
 
-1. **Smoothing** expression via k-nearest neighbours (to reduce noise).
-2. **Computing an initial perturbation vector** from a ligand-target prior network (e.g. NicheNet).
-3. **Propagating** the perturbation through a gene regulatory network for a user-defined number of iterations.
+1. **Computing an initial perturbation vector** from a ligand-target prior network (e.g. NicheNet).
+2. **Propagating** the perturbation through a gene regulatory network for a user-defined number of iterations.
+3. **Smoothing** the propagated perturbation over k-nearest neighbours.
 4. **Estimating transition probabilities** by comparing each cell's predicted post-perturbation state to the expression of its local neighbours (Gaussian kernel).
-5. **Converting** the transition matrix to a velocity vector field in embedding space.
+5. **Converting** the transition matrix to a velocity vector field in embedding space, scaled by per-cell effect size.
 
 This approach is conceptually similar to RNA velocity (scVelo) but driven by *prior knowledge* about ligand signalling rather than splicing kinetics.
 
