@@ -138,6 +138,40 @@ pytest
 python examples/synthetic_example.py
 ```
 
+## NicheNet + PBMC 3k example
+
+This example runs ligflow with the real NicheNet ligand-target priors on the
+canonical PBMC 3k 10x dataset.
+
+**Step 1 – export NicheNet priors to CSV (requires R + nichenetr):**
+
+```bash
+# install nichenetr once
+Rscript -e "devtools::install_github('saeyslab/nichenetr')"
+
+# export prior network and GRN as CSV
+Rscript examples/build_nichenet_priors.R
+```
+
+This writes `nichenet_prior.csv`, `nichenet_grn.csv`, and `nichenet_lr.csv` to
+the current working directory.
+
+**Step 2 – run the Python example:**
+
+```bash
+python examples/nichenet_pbmc3k_example.py
+```
+
+Output plots:
+
+- `nichenet_pbmc3k_velocity.png`    – UMAP + velocity arrows coloured by Leiden cluster
+- `nichenet_pbmc3k_magnitude.png`   – per-cell perturbation effect magnitude
+- `nichenet_pbmc3k_top_genes.png`   – top predicted target genes
+- `nichenet_pbmc3k_diagnostics.png` – six-panel workflow diagnostic
+
+The default ligand is `CXCL12`; change the `LIGAND` variable at the top of
+the script to explore other ligands (e.g. `CCL5`, `CXCL10`, `TNF`, `TGFB1`).
+
 ## Benchmarking
 
 Run a synthetic runtime benchmark (CSV + runtime plot):
