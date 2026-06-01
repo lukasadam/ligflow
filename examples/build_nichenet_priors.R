@@ -41,22 +41,12 @@ LIGAND_TARGET_THRESHOLD <- 0.001
 
 # Output paths
 OUT_PRIOR <- "nichenet_prior.csv"
-OUT_GRN   <- "nichenet_grn.csv"
-OUT_LR    <- "nichenet_lr.csv"
+OUT_GRN <- "nichenet_grn.csv"
+OUT_LR <- "nichenet_lr.csv"
 
-# ── 1. Load package ───────────────────────────────────────────────────────────
+# ── 1. Load NicheNet source data ─────────────────────────────────────────────
 
-if (!requireNamespace("nichenetr", quietly = TRUE)) {
-  stop(
-    "nichenetr is not installed.\n",
-    "Please run:\n",
-    "  install.packages('devtools')\n",
-    "  devtools::install_github('saeyslab/nichenetr')\n"
-  )
-}
-library(nichenetr)
-
-cat("nichenetr loaded.\n")
+cat("Downloading NicheNet source data from Zenodo.\n")
 
 # ── 2. Load NicheNet data objects ─────────────────────────────────────────────
 # nichenetr ships built-in RDS objects for both human and mouse.
@@ -89,7 +79,8 @@ if (ORGANISM == "human") {
 
 cat(sprintf(
   "Loaded ligand_target_matrix: %d target genes × %d ligands\n",
-  nrow(ligand_target_matrix), ncol(ligand_target_matrix)
+  nrow(ligand_target_matrix),
+  ncol(ligand_target_matrix)
 ))
 cat(sprintf(
   "Loaded lr_network: %d rows\n",
@@ -106,7 +97,10 @@ cat(sprintf(
 # the interaction_type column expected by ligflow.
 
 cat("\nConverting ligand_target_matrix to long format ...\n")
-lt_long <- as.data.frame(as.table(ligand_target_matrix), stringsAsFactors = FALSE)
+lt_long <- as.data.frame(
+  as.table(ligand_target_matrix),
+  stringsAsFactors = FALSE
+)
 colnames(lt_long) <- c("target", "source", "weight")
 
 # Keep only edges above the threshold
@@ -119,7 +113,8 @@ rownames(prior_df) <- NULL
 
 cat(sprintf(
   "  %d ligand-target edges retained (threshold = %.4f).\n",
-  nrow(prior_df), LIGAND_TARGET_THRESHOLD
+  nrow(prior_df),
+  LIGAND_TARGET_THRESHOLD
 ))
 
 write.csv(prior_df, OUT_PRIOR, row.names = FALSE)
@@ -132,9 +127,9 @@ cat(sprintf("Saved prior network → %s\n", OUT_PRIOR))
 cat("\nBuilding GRN from weighted_networks$gr ...\n")
 grn_raw <- as.data.frame(weighted_networks$gr, stringsAsFactors = FALSE)
 grn_df <- data.frame(
-  source           = grn_raw$from,
-  target           = grn_raw$to,
-  weight           = grn_raw$weight,
+  source = grn_raw$from,
+  target = grn_raw$to,
+  weight = grn_raw$weight,
   interaction_type = "TF_target",
   stringsAsFactors = FALSE
 )
@@ -150,9 +145,9 @@ cat(sprintf("Saved GRN → %s\n", OUT_GRN))
 cat("\nBuilding ligand-receptor network from lr_network ...\n")
 lr_raw <- as.data.frame(lr_network, stringsAsFactors = FALSE)
 lr_df <- data.frame(
-  source           = lr_raw$from,
-  target           = lr_raw$to,
-  weight           = if ("weight" %in% colnames(lr_raw)) lr_raw$weight else 1.0,
+  source = lr_raw$from,
+  target = lr_raw$to,
+  weight = if ("weight" %in% colnames(lr_raw)) lr_raw$weight else 1.0,
   interaction_type = "ligand_receptor",
   stringsAsFactors = FALSE
 )
@@ -169,9 +164,14 @@ cat("\nSummary\n")
 cat(sprintf("  Organism            : %s\n", ORGANISM))
 cat(sprintf("  Ligands in prior    : %d\n", length(unique(prior_df$source))))
 cat(sprintf("  Target genes        : %d\n", length(unique(prior_df$target))))
-cat(sprintf("  GRN genes           : %d\n", length(unique(c(grn_df$source, grn_df$target)))))
+cat(sprintf(
+  "  GRN genes           : %d\n",
+  length(unique(c(grn_df$source, grn_df$target)))
+))
 cat(sprintf("  LR pairs            : %d\n", nrow(lr_df)))
 cat("\nDone. Use these CSVs with the ligflow Python package:\n")
 cat(sprintf(
-  '  lf.load_prior("%s") and lf.load_grn("%s")\n', OUT_PRIOR, OUT_GRN
+  '  lf.load_prior("%s") and lf.load_grn("%s")\n',
+  OUT_PRIOR,
+  OUT_GRN
 ))

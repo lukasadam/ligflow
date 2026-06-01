@@ -42,6 +42,7 @@ nextflow.enable.dsl = 2
 
 include { BUILD_PRIORS       } from './modules/local/build_priors'
 include { COMPUTE_EMBEDDING  } from './modules/local/compute_embedding'
+include { GENERATE_SYNTHETIC_INPUTS } from './modules/local/generate_synthetic_inputs'
 include { RUN_LIGAND_FLOW    } from './modules/local/run_ligand_flow'
 include { PLOT_RESULTS       } from './modules/local/plot_results'
 
@@ -97,66 +98,82 @@ def helpMessage() {
     """.stripIndent()
 }
 
-if (params.help) {
-    helpMessage()
-    exit 0
-}
-
-// ── Validation ────────────────────────────────────────────────────────────────
-
-workflow.onComplete {
-    log.info (workflow.success ? "\n[ligflow] Pipeline completed successfully." : "\n[ligflow] Pipeline failed.")
-}
-
 // ── Main workflow ─────────────────────────────────────────────────────────────
 
 workflow {
 
+    if (params.help) {
+        helpMessage()
+        return
+    }
+
+    def testMode = workflow.profile.tokenize(',').contains('test')
+
     // ── 0. Validate required parameters ──────────────────────────────────────
-    if (params.input == null) {
+    if (!testMode && params.input == null) {
         error "Please provide --input (path to h5ad file)."
     }
     if (params.ligand == null) {
         error "Please provide --ligand (ligand name(s) to simulate)."
     }
-    if (!params.build_priors && (params.prior == null || params.grn == null)) {
+    if (!testMode && !params.build_priors && (params.prior == null || params.grn == null)) {
         error "Please provide --prior and --grn (network files), or use --build_priors true to build NicheNet priors automatically."
     }
 
-    // ── 1. (Optional) Build NicheNet priors via R ─────────────────────────────
-    if (params.build_priors) {
-        BUILD_PRIORS()
-        ch_prior = BUILD_PRIORS.out.prior
-        ch_grn   = BUILD_PRIORS.out.grn
-    } else {
-        ch_prior = Channel.fromPath(params.prior, checkIfExists: true)
-        ch_grn   = Channel.fromPath(params.grn,   checkIfExists: true)
-    }
+    def ch_input
+    def ch_prior
+    def ch_grn
 
-    // ── 2. Build input channel ────────────────────────────────────────────────
-    // meta map carries sample id, ligand(s), and optional colour column.
-    ch_input = Channel
-        .fromPath(params.input, checkIfExists: true)
-        .map { h5ad ->
-            def meta = [
-                id    : h5ad.baseName,
-                ligand: params.ligand,
-                color : params.color ?: null,
-            ]
-            [ meta, h5ad ]
+    // ── 1. Acquire inputs ─────────────────────────────────────────────────────
+    if (testMode) {
+        GENERATE_SYNTHETIC_INPUTS()
+        ch_input = GENERATE_SYNTHETIC_INPUTS.out.input
+            .map { h5ad ->
+                def meta = [
+                    id    : h5ad.baseName,
+                    ligand: params.ligand,
+                    color : params.color ?: null,
+                ]
+                [ meta, h5ad ]
+            }
+        ch_prior = GENERATE_SYNTHETIC_INPUTS.out.prior
+        ch_grn   = GENERATE_SYNTHETIC_INPUTS.out.grn
+    } else {
+        // ── 2. (Optional) Build NicheNet priors via R ─────────────────────────
+        if (params.build_priors) {
+            BUILD_PRIORS()
+            ch_prior = BUILD_PRIORS.out.prior
+            ch_grn   = BUILD_PRIORS.out.grn
+        } else {
+            ch_prior = Channel.fromPath(params.prior, checkIfExists: true)
+            ch_grn   = Channel.fromPath(params.grn,   checkIfExists: true)
         }
 
-    // ── 3. Compute embedding ──────────────────────────────────────────────────
+        // ── 3. Build input channel ────────────────────────────────────────────
+        // meta map carries sample id, ligand(s), and optional colour column.
+        ch_input = Channel
+            .fromPath(params.input, checkIfExists: true)
+            .map { h5ad ->
+                def meta = [
+                    id    : h5ad.baseName,
+                    ligand: params.ligand,
+                    color : params.color ?: null,
+                ]
+                [ meta, h5ad ]
+            }
+    }
+
+    // ── 4. Compute embedding ──────────────────────────────────────────────────
     COMPUTE_EMBEDDING(ch_input)
 
-    // ── 4. Run ligand-flow ────────────────────────────────────────────────────
+    // ── 5. Run ligand-flow ────────────────────────────────────────────────────
     RUN_LIGAND_FLOW(
         COMPUTE_EMBEDDING.out.embedded,
         ch_prior,
         ch_grn
     )
 
-    // ── 5. Plot results ───────────────────────────────────────────────────────
+    // ── 6. Plot results ───────────────────────────────────────────────────────
     PLOT_RESULTS(
         RUN_LIGAND_FLOW.out.result,
         ch_prior,

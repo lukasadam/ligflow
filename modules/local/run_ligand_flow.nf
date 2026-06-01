@@ -21,7 +21,7 @@ process RUN_LIGAND_FLOW {
     def embedding_key    = params.embedding_key      ?: 'X_umap'
     def expression_layer = params.expression_layer   ? "--expression-layer ${params.expression_layer}" : ''
     """
-    run_ligand_flow.py \\
+    python ${projectDir}/bin/run_ligand_flow.py \\
         --input         ${h5ad} \\
         --prior         ${prior} \\
         --grn           ${grn} \\

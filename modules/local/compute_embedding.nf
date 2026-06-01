@@ -18,7 +18,7 @@ process COMPUTE_EMBEDDING {
     def target_sum  = params.target_sum    ?: 10000
     def normalize   = params.normalize == false ? '--no-normalize' : ''
     """
-    compute_embedding.py \\
+    python ${projectDir}/bin/compute_embedding.py \\
         --input        ${h5ad} \\
         --output       ${meta.id}_embedded.h5ad \\
         --n-pcs        ${n_pcs} \\

@@ -21,7 +21,7 @@ process PLOT_RESULTS {
     def basis    = emb_key.startsWith('X_') ? emb_key.substring(2) : emb_key
     def prefix   = "${meta.id}_${meta.ligand}"
     """
-    plot_results.py \\
+    python ${projectDir}/bin/plot_results.py \\
         --input   ${h5ad} \\
         --ligand  "${meta.ligand}" \\
         --prior   ${prior} \\

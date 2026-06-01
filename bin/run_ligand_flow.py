@@ -27,8 +27,17 @@ from __future__ import annotations
 import argparse
 import sys
 
+import numpy as np
+import pandas as pd
 import scanpy as sc
 import ligflow as lf
+
+pd.options.future.infer_string = False
+
+
+def prepare_adata_for_write(adata):
+    adata.obs_names = pd.Index(np.asarray(adata.obs_names.astype(str), dtype=object))
+    adata.var_names = pd.Index(np.asarray(adata.var_names.astype(str), dtype=object))
 
 
 def parse_args(argv=None):
@@ -105,6 +114,7 @@ def main(argv=None):
     )
 
     print(f"[run_ligand_flow] Writing {args.output}", flush=True)
+    prepare_adata_for_write(adata)
     adata.write_h5ad(args.output)
     print("[run_ligand_flow] Done.", flush=True)
 
