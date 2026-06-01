@@ -17,7 +17,8 @@ process PLOT_RESULTS {
     def args     = task.ext.args  ?: ''
     def color    = meta.color     ? "--color ${meta.color}" : ''
     def n_genes  = params.n_genes ?: 20
-    def basis    = params.embedding_key ? params.embedding_key.replaceAll(/^X_/, '') : 'umap'
+    def emb_key  = params.embedding_key ?: 'X_umap'
+    def basis    = emb_key.startsWith('X_') ? emb_key.substring(2) : emb_key
     def prefix   = "${meta.id}_${meta.ligand}"
     """
     plot_results.py \\

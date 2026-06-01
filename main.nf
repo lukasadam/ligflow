@@ -113,14 +113,14 @@ workflow.onComplete {
 workflow {
 
     // ── 0. Validate required parameters ──────────────────────────────────────
-    if (!params.build_priors && params.input == null) {
-        error "Please provide --input (path to h5ad) or use --build_priors true with --input."
+    if (params.input == null) {
+        error "Please provide --input (path to h5ad file)."
     }
     if (params.ligand == null) {
         error "Please provide --ligand (ligand name(s) to simulate)."
     }
     if (!params.build_priors && (params.prior == null || params.grn == null)) {
-        error "Please provide --prior and --grn (network files), or use --build_priors true."
+        error "Please provide --prior and --grn (network files), or use --build_priors true to build NicheNet priors automatically."
     }
 
     // ── 1. (Optional) Build NicheNet priors via R ─────────────────────────────
