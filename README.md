@@ -37,13 +37,16 @@ adata = sc.read_h5ad("data.h5ad")
 prior = lf.load_prior("nichenet_prior.tsv")
 grn   = lf.load_grn("grn.tsv")
 
+# Compute PCA and UMAP embeddings (normalise → PCA → k-NN → UMAP)
+lf.compute_embedding(adata, n_pcs=30, n_neighbors=30)
+
 # Run the full pipeline
 lf.run_ligand_flow(
     adata,
     ligand="WNT3A",
     prior_network=prior,
     grn_network=grn,
-    embedding_key="X_umap",   # must be present in adata.obsm
+    embedding_key="X_umap",
     n_neighbors=30,
     n_iter=3,
     damping=0.8,
@@ -79,7 +82,15 @@ lf.pl.workflow_diagnostics(
 `lf.pl.workflow_diagnostics(...)` now visualises six stages:
 initial perturbation, GRN propagation, propagated perturbation, transition confidence, effect-size distribution, and embedding velocity.
 
-Results are stored in:
+After running `lf.compute_embedding` the following are also available:
+
+| Key | Description |
+|-----|-------------|
+| `adata.obsm["X_pca"]` | PCA coordinates (n_cells × n_pcs) |
+| `adata.obsm["X_umap"]` | UMAP coordinates (n_cells × 2) |
+| `adata.obsp["connectivities"]` | k-NN connectivity matrix |
+
+Results stored by `lf.run_ligand_flow`:
 
 | Key | Description |
 |-----|-------------|

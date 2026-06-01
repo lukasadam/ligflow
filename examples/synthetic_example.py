@@ -34,17 +34,16 @@ adata = ad.AnnData(
     var=pd.DataFrame(index=GENE_NAMES),
 )
 
-# Fake 2-D UMAP by embedding clusters as blobs
-centres = {"TypeA": (-3, 3), "TypeB": (3, 3), "TypeC": (-3, -3), "TypeD": (3, -3)}
-coords = np.vstack([
-    rng.normal(loc=centres[c], scale=0.8, size=(N_CELLS // 4, 2))
-    for c in ["TypeA", "TypeB", "TypeC", "TypeD"]
-])
-adata.obsm["X_umap"] = coords.astype(np.float32)
-
 print(f"AnnData: {adata}")
 
-# ── 2. Synthetic prior network ────────────────────────────────────────────────
+# ── 2. Compute PCA & UMAP embedding using scanpy ──────────────────────────────
+
+print("\nComputing PCA and UMAP embedding...")
+lf.compute_embedding(adata, n_pcs=20, n_neighbors=20, normalize=True)
+print(f"  PCA coordinates stored in  adata.obsm['X_pca']:  {adata.obsm['X_pca'].shape}")
+print(f"  UMAP coordinates stored in adata.obsm['X_umap']: {adata.obsm['X_umap'].shape}")
+
+# ── 3. Synthetic prior network ────────────────────────────────────────────────
 
 prior_df = pd.DataFrame(
     {
@@ -55,7 +54,7 @@ prior_df = pd.DataFrame(
     }
 )
 
-# ── 3. Synthetic GRN ─────────────────────────────────────────────────────────
+# ── 4. Synthetic GRN ─────────────────────────────────────────────────────────
 
 n_edges = 100
 grn_df = pd.DataFrame(
@@ -67,7 +66,7 @@ grn_df = pd.DataFrame(
     }
 )
 
-# ── 4. Run ligflow ────────────────────────────────────────────────────────────
+# ── 5. Run ligflow ────────────────────────────────────────────────────────────
 
 print(f"\nRunning ligand flow for ligand: {LIGAND}")
 result = lf.run_ligand_flow(
@@ -98,7 +97,7 @@ for idx in top5:
 velocities = result.obsm["X_ligand_velocity"]
 print(f"\nVelocity vector norms (mean): {np.linalg.norm(velocities, axis=1).mean():.4f}")
 
-# ── 5. (Optional) Plot ────────────────────────────────────────────────────────
+# ── 6. (Optional) Plot ────────────────────────────────────────────────────────
 
 try:
     import matplotlib

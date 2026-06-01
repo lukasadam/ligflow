@@ -192,6 +192,77 @@ def run_ligand_flow(
     return None
 
 
+def compute_embedding(
+    adata: AnnData,
+    n_pcs: int = 30,
+    n_neighbors: int = 30,
+    normalize: bool = True,
+    target_sum: float = 1e4,
+    umap_n_components: int = 2,
+    copy: bool = False,
+) -> Optional[AnnData]:
+    """Compute PCA and UMAP embeddings using scanpy.
+
+    Runs the standard scanpy preprocessing pipeline so that *adata* is ready
+    for :func:`run_ligand_flow`:
+
+    1. (Optional) Normalise total counts per cell to *target_sum*.
+    2. (Optional) Log1p-transform the expression matrix.
+    3. Compute PCA with *n_pcs* components (``sc.pp.pca``).
+    4. Build a k-NN graph with *n_neighbors* (``sc.pp.neighbors``).
+    5. Compute UMAP (``sc.tl.umap``).
+
+    After this call the following keys will be present in *adata*:
+
+    * ``adata.obsm["X_pca"]`` – PCA coordinates.
+    * ``adata.obsm["X_umap"]`` – UMAP coordinates.
+    * ``adata.obsp["connectivities"]`` – k-NN connectivity matrix.
+    * ``adata.obsp["distances"]`` – k-NN distance matrix.
+
+    Parameters
+    ----------
+    adata:
+        Annotated data matrix.  Cells on rows, genes on columns.
+    n_pcs:
+        Number of principal components to compute and use for the neighbour
+        graph.
+    n_neighbors:
+        Number of neighbours for the k-NN graph.
+    normalize:
+        If *True* (default), normalise counts and apply log1p before PCA.
+        Set to *False* when the expression matrix is already normalised.
+    target_sum:
+        Target total count per cell used by the normalisation step (only
+        relevant when *normalize=True*).
+    umap_n_components:
+        Number of UMAP dimensions (default 2).
+    copy:
+        If *True* work on a copy of *adata* and return it; otherwise mutate
+        *adata* in-place and return *None*.
+
+    Returns
+    -------
+    AnnData or None
+        Modified *AnnData* when ``copy=True``, otherwise *None*.
+    """
+    import scanpy as sc
+
+    if copy:
+        adata = adata.copy()
+
+    if normalize:
+        sc.pp.normalize_total(adata, target_sum=target_sum)
+        sc.pp.log1p(adata)
+
+    sc.pp.pca(adata, n_comps=n_pcs)
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+    sc.tl.umap(adata, n_components=umap_n_components)
+
+    if copy:
+        return adata
+    return None
+
+
 def load_grn(
     path: Union[str, "pathlib.Path"],  # noqa: F821
     sep: Optional[str] = None,

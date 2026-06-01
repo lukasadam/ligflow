@@ -28,8 +28,8 @@ def test_vectorfield_identity_gives_zeros(adata):
 def test_vectorfield_missing_embedding(adata):
     n = adata.n_obs
     T = sp.eye(n, format="csr")
-    with pytest.raises(KeyError, match="X_pca"):
-        transition_to_vectors(adata, T, embedding_key="X_pca")
+    with pytest.raises(KeyError, match="X_nonexistent"):
+        transition_to_vectors(adata, T, embedding_key="X_nonexistent")
 
 
 def test_vectorfield_non_zero(adata):
