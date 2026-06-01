@@ -13,6 +13,28 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+from .imputation import knn_smooth_array
+
+
+def _smooth_cellwise_values(
+    adata: AnnData,
+    values: np.ndarray,
+    n_neighbors: int = 30,
+    use_existing_neighbors: bool = True,
+) -> np.ndarray:
+    """Diffuse a 1-D per-cell signal over the kNN graph."""
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.ndim != 1:
+        raise ValueError(f"values must be 1-D, got shape {arr.shape}")
+
+    smooth = knn_smooth_array(
+        adata=adata,
+        values=arr[:, None],
+        n_neighbors=n_neighbors,
+        use_existing_neighbors=use_existing_neighbors,
+    )
+    return np.asarray(smooth[:, 0])
+
 
 def velocity_embedding(
     adata: AnnData,
@@ -145,6 +167,9 @@ def ligand_effect_magnitude(
     adata: AnnData,
     basis: str = "umap",
     velocity_key: str = "X_ligand_velocity",
+    smooth: bool = True,
+    n_neighbors: int = 30,
+    use_existing_neighbors: bool = True,
     figsize: tuple[float, float] = (7, 6),
     cmap: str = "viridis",
     show: bool = True,
@@ -162,6 +187,12 @@ def ligand_effect_magnitude(
         Name of the embedding.
     velocity_key:
         Key in ``adata.obsm`` for velocity vectors.
+    smooth:
+        If *True* diffuse the per-cell effect magnitudes over the kNN graph.
+    n_neighbors:
+        Number of neighbours used when a kNN graph must be computed.
+    use_existing_neighbors:
+        If *True* reuse ``adata.obsp["connectivities"]`` when available.
     figsize:
         Figure size.
     cmap:
@@ -191,6 +222,13 @@ def ligand_effect_magnitude(
     coords = np.array(adata.obsm[emb_key])
     vels = np.array(adata.obsm[velocity_key])
     magnitudes = np.linalg.norm(vels, axis=1)
+    if smooth:
+        magnitudes = _smooth_cellwise_values(
+            adata=adata,
+            values=magnitudes,
+            n_neighbors=n_neighbors,
+            use_existing_neighbors=use_existing_neighbors,
+        )
 
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -480,8 +518,14 @@ def workflow_diagnostics(
 
     # 5) Effect size panel
     effect_size = np.linalg.norm(propagated, axis=1)
+    effect_size = _smooth_cellwise_values(
+        adata=adata,
+        values=effect_size,
+        n_neighbors=n_neighbors,
+        use_existing_neighbors=True,
+    )
     _plot_hist(ax_effect, effect_size, bins=25, color="tab:red", alpha=0.85)
-    ax_effect.set_xlabel("Per-cell perturbation effect size")
+    ax_effect.set_xlabel("Smoothed per-cell perturbation effect size")
     ax_effect.set_ylabel("Cell count")
     ax_effect.set_title("5) Effect size")
 
