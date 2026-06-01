@@ -13,7 +13,94 @@ The method does *not* infer true temporal dynamics from time-series data.  Inste
 
 This approach is conceptually similar to RNA velocity (scVelo) but driven by *prior knowledge* about ligand signalling rather than splicing kinetics.
 
-## Installation
+## Nextflow pipeline (recommended)
+
+The recommended way to run ligflow is via the bundled Nextflow pipeline, which
+manages all dependencies through conda environments automatically.
+
+### Prerequisites
+
+- [Nextflow ≥ 23.04](https://www.nextflow.io/docs/latest/getstarted.html)
+- [conda](https://docs.conda.io/en/latest/miniconda.html) (or
+  [mamba](https://mamba.readthedocs.io/) for faster solves)
+
+### Quick start
+
+```bash
+# Standard run with pre-built prior networks
+nextflow run main.nf -profile conda \
+    --input      data.h5ad \
+    --ligand     CXCL12 \
+    --prior      nichenet_prior.csv \
+    --grn        nichenet_grn.csv \
+    --outdir     results
+```
+
+Results are written to `results/`:
+
+| Subdirectory | Contents |
+|---|---|
+| `results/embedding/` | h5ad with PCA + UMAP |
+| `results/results/` | h5ad with ligand-flow outputs |
+| `results/plots/` | PNG diagnostic plots |
+| `results/pipeline_info/` | Nextflow execution report / trace |
+
+### Build NicheNet priors automatically
+
+If you do not have pre-built prior networks, the pipeline can build them from
+the [NicheNet](https://github.com/saeyslab/nichenetr) R package (requires R
+and Internet access to Zenodo):
+
+```bash
+nextflow run main.nf -profile conda \
+    --input        data.h5ad \
+    --ligand       CXCL12 \
+    --build_priors true \
+    --outdir       results
+```
+
+### Use mamba for faster dependency solves
+
+```bash
+nextflow run main.nf -profile mamba \
+    --input data.h5ad --ligand CXCL12 \
+    --prior nichenet_prior.csv --grn nichenet_grn.csv
+```
+
+### Full parameter reference
+
+```
+nextflow run main.nf --help
+```
+
+### Pipeline structure
+
+```
+main.nf                     # Main Nextflow workflow
+nextflow.config             # Global config + profiles
+conf/
+  base.config               # Default resource limits
+envs/
+  ligflow.yml               # Python conda environment (all Python steps)
+  nichenet.yml              # R conda environment (NicheNet prior building)
+modules/local/
+  build_priors.nf           # Process: build NicheNet priors (R)
+  compute_embedding.nf      # Process: PCA + UMAP
+  run_ligand_flow.nf        # Process: ligand-flow simulation
+  plot_results.nf           # Process: diagnostic plots
+bin/
+  compute_embedding.py      # CLI script called by COMPUTE_EMBEDDING
+  run_ligand_flow.py        # CLI script called by RUN_LIGAND_FLOW
+  plot_results.py           # CLI script called by PLOT_RESULTS
+```
+
+---
+
+## Python package (direct use)
+
+You can also use ligflow directly as a Python package without Nextflow.
+
+### Installation
 
 ```bash
 pip install .

@@ -1,0 +1,14 @@
+name: nichenet
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - r-base>=4.2
+  - r-devtools
+  - r-curl
+  - r-httr
+  - r-jsonlite
+  - r-tidyverse
+  - r-matrix
+  - bioconductor-biocmanager
