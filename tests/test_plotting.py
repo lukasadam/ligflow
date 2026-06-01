@@ -5,6 +5,7 @@ from __future__ import annotations
 import matplotlib
 
 matplotlib.use("Agg")
+import pandas as pd
 
 from ligflow.plotting import workflow_diagnostics
 
@@ -26,8 +27,14 @@ def test_workflow_diagnostics_returns_axes(adata, prior_network, grn_network):
 
 
 def test_workflow_diagnostics_handles_missing_ligand_targets(adata, prior_network, grn_network):
-    prior_no_overlap = prior_network.copy()
-    prior_no_overlap["target"] = "MissingGene"
+    prior_no_overlap = pd.DataFrame(
+        {
+            "source": ["Gene0", "Gene0"],
+            "target": ["MissingGeneA", "MissingGeneB"],
+            "weight": [0.4, 0.9],
+            "interaction_type": ["ligand_target", "ligand_target"],
+        }
+    )
 
     axes = workflow_diagnostics(
         adata=adata,
@@ -41,3 +48,6 @@ def test_workflow_diagnostics_handles_missing_ligand_targets(adata, prior_networ
         show=False,
     )
     assert axes[0, 1].get_title() == "2) Initial perturbation"
+    assert any(text.get_text() == "No prior targets found" for text in axes[0, 1].texts)
+    assert len(axes[0, 1].get_xticks()) == 0
+    assert len(axes[0, 1].get_yticks()) == 0

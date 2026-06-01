@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
 
 
@@ -75,6 +76,10 @@ def velocity_embedding(
             f"Embedding key '{emb_key}' not found in adata.obsm. "
             f"Available: {list(adata.obsm.keys())}"
         )
+    if n_iter < 0:
+        raise ValueError(f"n_iter must be non-negative, got {n_iter}")
+    if not (0.0 <= damping <= 1.0):
+        raise ValueError(f"damping must be in [0, 1], got {damping}")
     if velocity_key not in adata.obsm:
         raise KeyError(
             f"Velocity key '{velocity_key}' not found in adata.obsm. "
@@ -276,8 +281,8 @@ def top_target_genes(
 def workflow_diagnostics(
     adata: AnnData,
     ligand: str | list[str],
-    prior_network: "pd.DataFrame",  # noqa: F821
-    grn_network: "pd.DataFrame",  # noqa: F821
+    prior_network: pd.DataFrame,
+    grn_network: pd.DataFrame,
     expression_layer: Optional[str] = None,
     basis: str = "umap",
     n_neighbors: int = 30,
@@ -287,7 +292,7 @@ def workflow_diagnostics(
     top_n_genes: int = 12,
     figsize: tuple[float, float] = (16, 9),
     show: bool = True,
-) -> Optional["numpy.ndarray"]:  # noqa: F821
+) -> Optional[np.ndarray]:
     """Plot a five-step visual diagnostic overview of the ligflow workflow.
 
     The figure contains panels for:
@@ -302,7 +307,7 @@ def workflow_diagnostics(
 
     from .imputation import knn_smooth
     from .priors import network_to_adjacency, subset_by_ligand
-    from .propagation import build_initial_delta, propagate_signal
+    from .propagation import _column_normalise, build_initial_delta
     from .transitions import compute_transition_probabilities
     from .vectorfield import transition_to_vectors
 
@@ -332,33 +337,26 @@ def workflow_diagnostics(
 
     # Step 2: initial perturbation from ligand-target prior
     gene_names = list(adata.var_names)
-    ligand_subnet = subset_by_ligand(prior_network, ligand)
+    ligand_list = [ligand] if isinstance(ligand, str) else list(ligand)
+    ligand_subnet = subset_by_ligand(prior_network, ligand_list)
     initial_delta = build_initial_delta(
-        ligand=ligand,
+        ligand=ligand_list,
         prior_network=ligand_subnet,
         gene_names=gene_names,
     )
 
     # Step 3: propagation through GRN
     grn_matrix = network_to_adjacency(grn_network, gene_names)
-    propagation_norms = []
-    for i in range(max(n_iter, 0) + 1):
-        propagated_i = propagate_signal(
-            expression=X_smooth,
-            initial_delta=initial_delta,
-            grn_matrix=grn_matrix,
-            n_iter=i,
-            damping=damping,
-        )
-        propagation_norms.append(float(np.linalg.norm(propagated_i[0])))
-
-    propagated = propagate_signal(
-        expression=X_smooth,
-        initial_delta=initial_delta,
-        grn_matrix=grn_matrix,
-        n_iter=n_iter,
-        damping=damping,
-    )
+    G = _column_normalise(grn_matrix)
+    delta = initial_delta.copy().astype(np.float64)
+    propagation_norms = [float(np.linalg.norm(delta))]
+    for _ in range(n_iter):
+        if sp.issparse(G):
+            delta = damping * np.asarray(G @ delta).ravel() + initial_delta
+        else:
+            delta = damping * (G @ delta) + initial_delta
+        propagation_norms.append(float(np.linalg.norm(delta)))
+    propagated = np.tile(delta, (X_smooth.shape[0], 1))
 
     # Step 4: transition matrix from Gaussian kernel
     T = compute_transition_probabilities(
@@ -397,9 +395,9 @@ def workflow_diagnostics(
     else:
         ranked_idx = nonzero_idx[np.argsort(np.abs(initial_delta[nonzero_idx]))[::-1]]
         top_idx = ranked_idx[:top_n_genes]
-        genes = np.array(gene_names, dtype=object)[top_idx]
+        genes = [gene_names[i] for i in top_idx]
         vals = initial_delta[top_idx]
-        ax_delta.barh(genes[::-1], vals[::-1], color="tab:orange")
+        ax_delta.barh(genes, vals, color="tab:orange")
         ax_delta.set_xlabel("Initial perturbation weight")
         ax_delta.invert_yaxis()
     ax_delta.set_title("2) Initial perturbation")
@@ -407,7 +405,7 @@ def workflow_diagnostics(
     # 3) Propagation panel
     ax_prop.plot(range(len(propagation_norms)), propagation_norms, marker="o", color="tab:green")
     ax_prop.set_xlabel("Iteration")
-    ax_prop.set_ylabel("||delta||₂")
+    ax_prop.set_ylabel(r"$||\delta||_2$")
     ax_prop.set_title("3) GRN propagation")
 
     # 4) Transition probabilities panel
