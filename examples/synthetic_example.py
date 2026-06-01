@@ -34,17 +34,16 @@ adata = ad.AnnData(
     var=pd.DataFrame(index=GENE_NAMES),
 )
 
-# Fake 2-D UMAP by embedding clusters as blobs
-centres = {"TypeA": (-3, 3), "TypeB": (3, 3), "TypeC": (-3, -3), "TypeD": (3, -3)}
-coords = np.vstack([
-    rng.normal(loc=centres[c], scale=0.8, size=(N_CELLS // 4, 2))
-    for c in ["TypeA", "TypeB", "TypeC", "TypeD"]
-])
-adata.obsm["X_umap"] = coords.astype(np.float32)
-
 print(f"AnnData: {adata}")
 
-# ── 2. Synthetic prior network ────────────────────────────────────────────────
+# ── 2. Compute PCA & UMAP embedding using scanpy ──────────────────────────────
+
+print("\nComputing PCA and UMAP embedding...")
+lf.compute_embedding(adata, n_pcs=20, n_neighbors=20, normalize=True)
+print(f"  PCA coordinates stored in  adata.obsm['X_pca']:  {adata.obsm['X_pca'].shape}")
+print(f"  UMAP coordinates stored in adata.obsm['X_umap']: {adata.obsm['X_umap'].shape}")
+
+# ── 3. Synthetic prior network ────────────────────────────────────────────────
 
 prior_df = pd.DataFrame(
     {
@@ -55,7 +54,7 @@ prior_df = pd.DataFrame(
     }
 )
 
-# ── 3. Synthetic GRN ─────────────────────────────────────────────────────────
+# ── 4. Synthetic GRN ─────────────────────────────────────────────────────────
 
 n_edges = 100
 grn_df = pd.DataFrame(
@@ -67,7 +66,7 @@ grn_df = pd.DataFrame(
     }
 )
 
-# ── 4. Run ligflow ────────────────────────────────────────────────────────────
+# ── 5. Run ligflow ────────────────────────────────────────────────────────────
 
 print(f"\nRunning ligand flow for ligand: {LIGAND}")
 result = lf.run_ligand_flow(
@@ -98,28 +97,40 @@ for idx in top5:
 velocities = result.obsm["X_ligand_velocity"]
 print(f"\nVelocity vector norms (mean): {np.linalg.norm(velocities, axis=1).mean():.4f}")
 
-# ── 5. (Optional) Plot ────────────────────────────────────────────────────────
+# ── 6. (Optional) Plot ────────────────────────────────────────────────────────
 
 try:
     import matplotlib
     matplotlib.use("Agg")  # non-interactive backend
 
-    ax = lf.pl.velocity_embedding(
+    lf.pl.velocity_embedding(
         result,
         basis="umap",
         color="cell_type",
         show=False,
+        save="ligflow_velocity.png",
     )
-    ax.figure.savefig("/tmp/ligflow_velocity.png", dpi=100, bbox_inches="tight")
-    print("\nSaved velocity plot to /tmp/ligflow_velocity.png")
+    print("\nSaved velocity plot to ligflow_velocity.png")
 
-    ax2 = lf.pl.ligand_effect_magnitude(result, show=False)
-    ax2.figure.savefig("/tmp/ligflow_magnitude.png", dpi=100, bbox_inches="tight")
-    print("Saved magnitude plot to /tmp/ligflow_magnitude.png")
+    lf.pl.ligand_effect_magnitude(result, show=False, save="ligflow_magnitude.png")
+    print("Saved magnitude plot to ligflow_magnitude.png")
 
-    ax3 = lf.pl.top_target_genes(result, n_genes=10, show=False)
-    ax3.figure.savefig("/tmp/ligflow_top_genes.png", dpi=100, bbox_inches="tight")
-    print("Saved top-genes plot to /tmp/ligflow_top_genes.png")
+    lf.pl.top_target_genes(result, n_genes=10, show=False, save="ligflow_top_genes.png")
+    print("Saved top-genes plot to ligflow_top_genes.png")
+
+    lf.pl.workflow_diagnostics(
+        result,
+        ligand=LIGAND,
+        prior_network=prior_df,
+        grn_network=grn_df,
+        basis="umap",
+        n_neighbors=20,
+        n_iter=3,
+        damping=0.8,
+        show=False,
+        save="ligflow_workflow_diagnostics.png",
+    )
+    print("Saved workflow diagnostics plot to ligflow_workflow_diagnostics.png")
 
 except ImportError:
     print("\n(matplotlib not available; skipping plots)")

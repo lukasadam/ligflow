@@ -11,13 +11,12 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+import scvelo as scv
 from anndata import AnnData
 
-from .imputation import knn_smooth
 from .propagation import build_initial_delta, propagate_signal
 from .priors import network_to_adjacency, subset_by_ligand
 from .transitions import compute_transition_probabilities
-from .vectorfield import transition_to_vectors
 
 
 def run_ligand_flow(
@@ -37,11 +36,10 @@ def run_ligand_flow(
 
     The function executes the following steps in order:
 
-    1. Smooth / impute expression with kNN averaging.
-    2. Build the initial perturbation vector from *prior_network*.
-    3. Propagate the perturbation through *grn_network* for *n_iter* steps.
-    4. Compute cell-cell transition probabilities via a Gaussian kernel.
-    5. Convert the transition matrix into velocity vectors in embedding space.
+    1. Build the initial perturbation vector from *prior_network*.
+    2. Propagate the perturbation through *grn_network* for *n_iter* steps.
+    3. Compute cell-cell transition probabilities via a Gaussian kernel.
+    4. Compute embedding velocities with ``scvelo.tl.velocity_embedding``.
 
     Results are stored in *adata* (or a copy if ``copy=True``):
 
@@ -51,6 +49,8 @@ def run_ligand_flow(
       serialised as a dict of arrays (``data``, ``indices``, ``indptr``,
       ``shape``).
     * ``adata.uns["ligand_metadata"]``  – run parameters.
+      Includes flags describing whether post-propagation smoothing or
+      effect-size scaling were applied, and the velocity embedding method.
 
     Parameters
     ----------
@@ -70,8 +70,7 @@ def run_ligand_flow(
     embedding_key:
         Key in ``adata.obsm`` for the 2-D embedding used for the vector field.
     n_neighbors:
-        Number of nearest neighbours for kNN smoothing and transition
-        probability estimation.
+        Number of nearest neighbours for transition probability estimation.
     n_iter:
         Number of GRN propagation iterations.
     damping:
@@ -113,13 +112,15 @@ def run_ligand_flow(
 
     gene_names = list(adata.var_names)
 
-    # ── Step 1: Smooth expression ────────────────────────────────────────────
-    X_smooth = knn_smooth(
-        adata,
-        layer=expression_layer,
-        n_neighbors=n_neighbors,
-        use_existing_neighbors=True,
-    )
+    # ── Step 1: Fetch expression matrix ──────────────────────────────────────
+    if expression_layer is None:
+        expression = adata.X
+    else:
+        expression = adata.layers[expression_layer]
+    if sp.issparse(expression):
+        expression = np.asarray(expression.todense())
+    else:
+        expression = np.asarray(expression)
 
     # ── Step 2: Build initial perturbation vector ────────────────────────────
     ligand_subnet = subset_by_ligand(prior_network, ligand)
@@ -131,8 +132,8 @@ def run_ligand_flow(
 
     # ── Step 3: Build GRN matrix & propagate ────────────────────────────────
     grn_matrix = network_to_adjacency(grn_network, gene_names)
-    propagated = propagate_signal(
-        expression=X_smooth,
+    propagated_raw = propagate_signal(
+        expression=expression,
         initial_delta=initial_delta,
         grn_matrix=grn_matrix,
         n_iter=n_iter,
@@ -140,24 +141,29 @@ def run_ligand_flow(
     )
 
     # ── Step 4: Transition probabilities ────────────────────────────────────
+    propagated = propagated_raw
     T = compute_transition_probabilities(
         adata=adata,
-        expression=X_smooth,
+        expression=expression,
         propagated_delta=propagated,
         n_neighbors=n_neighbors,
         kernel_sigma=kernel_sigma,
         use_existing_neighbors=True,
     )
 
-    # ── Step 5: Vector field ─────────────────────────────────────────────────
-    vectors = transition_to_vectors(
-        adata=adata,
-        transition_matrix=T,
-        embedding_key=embedding_key,
+    # ── Step 5: Embedding velocity (scvelo) ─────────────────────────────────
+    adata.layers["ligand_shift"] = propagated
+    basis = embedding_key[2:] if embedding_key.startswith("X_") else embedding_key
+    scv.tl.velocity_embedding(
+        adata,
+        basis=basis,
+        vkey="ligand_shift",
+        T=T,
+        autoscale=False,
     )
+    vectors = np.asarray(adata.obsm[f"ligand_shift_{basis}"])
 
     # ── Store results ────────────────────────────────────────────────────────
-    adata.layers["ligand_shift"] = propagated
     adata.obsm["X_ligand_velocity"] = vectors
 
     # Serialise sparse transition matrix for storage in uns
@@ -176,7 +182,81 @@ def run_ligand_flow(
         "kernel_sigma": kernel_sigma,
         "embedding_key": embedding_key,
         "expression_layer": expression_layer,
+        "post_propagation_smoothing": False,
+        "velocity_scaled_by_effect_size": False,
+        "velocity_embedding_method": "scvelo.tl.velocity_embedding",
     }
+
+    if copy:
+        return adata
+    return None
+
+
+def compute_embedding(
+    adata: AnnData,
+    n_pcs: int = 30,
+    n_neighbors: int = 30,
+    normalize: bool = True,
+    target_sum: float = 1e4,
+    umap_n_components: int = 2,
+    copy: bool = False,
+) -> Optional[AnnData]:
+    """Compute PCA and UMAP embeddings using scanpy.
+
+    Runs the standard scanpy preprocessing pipeline so that *adata* is ready
+    for :func:`run_ligand_flow`:
+
+    1. (Optional) Normalise total counts per cell to *target_sum*.
+    2. (Optional) Log1p-transform the expression matrix.
+    3. Compute PCA with *n_pcs* components (``sc.pp.pca``).
+    4. Build a k-NN graph with *n_neighbors* (``sc.pp.neighbors``).
+    5. Compute UMAP (``sc.tl.umap``).
+
+    After this call the following keys will be present in *adata*:
+
+    * ``adata.obsm["X_pca"]`` – PCA coordinates.
+    * ``adata.obsm["X_umap"]`` – UMAP coordinates.
+    * ``adata.obsp["connectivities"]`` – k-NN connectivity matrix.
+    * ``adata.obsp["distances"]`` – k-NN distance matrix.
+
+    Parameters
+    ----------
+    adata:
+        Annotated data matrix.  Cells on rows, genes on columns.
+    n_pcs:
+        Number of principal components to compute and use for the neighbour
+        graph.
+    n_neighbors:
+        Number of neighbours for the k-NN graph.
+    normalize:
+        If *True* (default), normalise counts and apply log1p before PCA.
+        Set to *False* when the expression matrix is already normalised.
+    target_sum:
+        Target total count per cell used by the normalisation step (only
+        relevant when *normalize=True*).
+    umap_n_components:
+        Number of UMAP dimensions (default 2).
+    copy:
+        If *True* work on a copy of *adata* and return it; otherwise mutate
+        *adata* in-place and return *None*.
+
+    Returns
+    -------
+    AnnData or None
+        Modified *AnnData* when ``copy=True``, otherwise *None*.
+    """
+    import scanpy as sc
+
+    if copy:
+        adata = adata.copy()
+
+    if normalize:
+        sc.pp.normalize_total(adata, target_sum=target_sum)
+        sc.pp.log1p(adata)
+
+    sc.pp.pca(adata, n_comps=n_pcs)
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+    sc.tl.umap(adata, n_components=umap_n_components)
 
     if copy:
         return adata

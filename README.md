@@ -6,11 +6,10 @@
 
 The method does *not* infer true temporal dynamics from time-series data.  Instead, it simulates the likely local cell-state shift that would result from exposing cells to a specific ligand, by:
 
-1. **Smoothing** expression via k-nearest neighbours (to reduce noise).
-2. **Computing an initial perturbation vector** from a ligand-target prior network (e.g. NicheNet).
-3. **Propagating** the perturbation through a gene regulatory network for a user-defined number of iterations.
-4. **Estimating transition probabilities** by comparing each cell's predicted post-perturbation state to the expression of its local neighbours (Gaussian kernel).
-5. **Converting** the transition matrix to a velocity vector field in embedding space.
+1. **Computing an initial perturbation vector** from a ligand-target prior network (e.g. NicheNet).
+2. **Propagating** the perturbation through a gene regulatory network for a user-defined number of iterations.
+3. **Estimating transition probabilities** by comparing each cell's predicted post-perturbation state to the expression of its local neighbours (Gaussian kernel).
+4. **Projecting** ligand shift vectors into embedding space via `scvelo.tl.velocity_embedding`.
 
 This approach is conceptually similar to RNA velocity (scVelo) but driven by *prior knowledge* about ligand signalling rather than splicing kinetics.
 
@@ -38,13 +37,16 @@ adata = sc.read_h5ad("data.h5ad")
 prior = lf.load_prior("nichenet_prior.tsv")
 grn   = lf.load_grn("grn.tsv")
 
+# Compute PCA and UMAP embeddings (normalise → PCA → k-NN → UMAP)
+lf.compute_embedding(adata, n_pcs=30, n_neighbors=30)
+
 # Run the full pipeline
 lf.run_ligand_flow(
     adata,
     ligand="WNT3A",
     prior_network=prior,
     grn_network=grn,
-    embedding_key="X_umap",   # must be present in adata.obsm
+    embedding_key="X_umap",
     n_neighbors=30,
     n_iter=3,
     damping=0.8,
@@ -54,9 +56,41 @@ lf.run_ligand_flow(
 lf.pl.velocity_embedding(adata, basis="umap", color="cell_type")
 lf.pl.ligand_effect_magnitude(adata)
 lf.pl.top_target_genes(adata, n_genes=20)
+lf.pl.workflow_diagnostics(
+    adata,
+    ligand="WNT3A",
+    prior_network=prior,
+    grn_network=grn,
+    basis="umap",
+)
+
+# Save plots as PNGs
+lf.pl.velocity_embedding(adata, basis="umap", color="cell_type", show=False, save="velocity.png")
+lf.pl.ligand_effect_magnitude(adata, show=False, save="magnitude.png")
+lf.pl.top_target_genes(adata, n_genes=20, show=False, save="top_genes.png")
+lf.pl.workflow_diagnostics(
+    adata,
+    ligand="WNT3A",
+    prior_network=prior,
+    grn_network=grn,
+    basis="umap",
+    show=False,
+    save="workflow_diagnostics.png",
+)
 ```
 
-Results are stored in:
+`lf.pl.workflow_diagnostics(...)` now visualises six stages:
+initial perturbation, GRN propagation, propagated perturbation, transition confidence, effect-size distribution, and embedding velocity.
+
+After running `lf.compute_embedding` the following are also available:
+
+| Key | Description |
+|-----|-------------|
+| `adata.obsm["X_pca"]` | PCA coordinates (n_cells × n_pcs) |
+| `adata.obsm["X_umap"]` | UMAP coordinates (n_cells × 2) |
+| `adata.obsp["connectivities"]` | k-NN connectivity matrix |
+
+Results stored by `lf.run_ligand_flow`:
 
 | Key | Description |
 |-----|-------------|
@@ -103,3 +137,50 @@ pytest
 ```bash
 python examples/synthetic_example.py
 ```
+
+## NicheNet + PBMC 3k example
+
+This example runs ligflow with the real NicheNet ligand-target priors on the
+canonical PBMC 3k 10x dataset.
+
+**Step 1 – export NicheNet priors to CSV (requires R + nichenetr):**
+
+```bash
+# install nichenetr once
+Rscript -e "devtools::install_github('saeyslab/nichenetr')"
+
+# export prior network and GRN as CSV
+Rscript examples/build_nichenet_priors.R
+```
+
+This writes `nichenet_prior.csv`, `nichenet_grn.csv`, and `nichenet_lr.csv` to
+the current working directory.
+
+**Step 2 – run the Python example:**
+
+```bash
+python examples/nichenet_pbmc3k_example.py
+```
+
+Output plots:
+
+- `nichenet_pbmc3k_velocity.png`    – UMAP + velocity arrows coloured by Leiden cluster
+- `nichenet_pbmc3k_magnitude.png`   – per-cell perturbation effect magnitude
+- `nichenet_pbmc3k_top_genes.png`   – top predicted target genes
+- `nichenet_pbmc3k_diagnostics.png` – six-panel workflow diagnostic
+
+The default ligand is `CXCL12`; change the `LIGAND` variable at the top of
+the script to explore other ligands (e.g. `CCL5`, `CXCL10`, `TNF`, `TGFB1`).
+
+## Benchmarking
+
+Run a synthetic runtime benchmark (CSV + runtime plot):
+
+```bash
+python examples/benchmark_synthetic.py
+```
+
+This writes:
+
+- `ligflow_benchmark_results.csv`
+- `ligflow_benchmark_runtime.png`

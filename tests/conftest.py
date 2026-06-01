@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import anndata as ad
+import scanpy as sc
 
 
 # ── Synthetic AnnData ─────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ def gene_names() -> list[str]:
 
 @pytest.fixture(scope="session")
 def adata(gene_names) -> ad.AnnData:
-    """Small synthetic AnnData with random expression and a UMAP embedding."""
+    """Small synthetic AnnData with random expression, PCA, and UMAP embedding."""
     rng = np.random.default_rng(42)
     X = rng.exponential(scale=1.0, size=(N_CELLS, N_GENES)).astype(np.float32)
     obs_names = [f"Cell{i}" for i in range(N_CELLS)]
@@ -36,8 +37,11 @@ def adata(gene_names) -> ad.AnnData:
         ),
         var=pd.DataFrame(index=gene_names),
     )
-    # Fake 2-D UMAP coordinates
-    adata.obsm["X_umap"] = rng.standard_normal((N_CELLS, 2)).astype(np.float32)
+    # Compute PCA, k-NN graph, and UMAP via scanpy
+    n_pcs = min(10, N_CELLS - 1, N_GENES - 1)
+    sc.pp.pca(adata, n_comps=n_pcs)
+    sc.pp.neighbors(adata, n_neighbors=10, n_pcs=n_pcs)
+    sc.tl.umap(adata, n_components=2)
     return adata
 
 

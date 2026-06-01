@@ -17,6 +17,7 @@ def transition_to_vectors(
     adata: AnnData,
     transition_matrix: sp.csr_matrix,
     embedding_key: str = "X_umap",
+    effect_size: Union[np.ndarray, None] = None,
 ) -> np.ndarray:
     """Compute velocity vectors from a transition probability matrix.
 
@@ -40,6 +41,10 @@ def transition_to_vectors(
     embedding_key:
         Key in ``adata.obsm`` that holds the 2-D (or higher-dimensional)
         embedding coordinates.
+    effect_size:
+        Optional 1-D per-cell effect size used to scale arrow length.
+        Values are max-normalised before scaling so direction is preserved and
+        relative magnitudes become proportional to local effect size.
 
     Returns
     -------
@@ -74,5 +79,15 @@ def transition_to_vectors(
 
     vectors = np.zeros((n_cells, n_dims), dtype=np.float64)
     vectors[has_targets] = weighted_targets[has_targets] - embedding[has_targets]
+
+    if effect_size is not None:
+        effect = np.asarray(effect_size, dtype=np.float64).ravel()
+        if effect.shape != (n_cells,):
+            raise ValueError(
+                f"effect_size must have shape ({n_cells},), got {effect.shape}"
+            )
+        max_effect = float(np.max(effect)) if effect.size else 0.0
+        if max_effect > 0:
+            vectors *= (effect / max_effect)[:, np.newaxis]
 
     return vectors
